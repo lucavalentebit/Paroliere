@@ -2,14 +2,12 @@ CC := gcc
 CFLAGS := -Wall -Wextra -pedantic -g
 LIBS := libs
 SRC := $(wildcard $(LIBS)/*.c)
-OBJ := $(SRC:.c=.o)
-HEADER := $(wildcard $(LIBS)/*.h)
 
-.PHONY: all clean kill test
+.PHONY: all clean 
 
-all: server client
+all: paroliere_srv paroliere_cl
 
-server: server.o $(OBJ)
+paroliere_srv: paroliere_srv$(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ -lpthread
 
 server.o: server.c
