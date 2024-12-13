@@ -7,6 +7,10 @@ typedef struct TrieNode {
     int fine_parola;             // flag per indicare fine parola (1) o no (0)
 } TrieNode;
 
+
+//Funzione che libera la memoria allocata per il trie
+void libera_trie(TrieNode *nodo);
+
 // Genera matrice casuale
 char* genera_matrice_stringa(int righe, int colonne);
 

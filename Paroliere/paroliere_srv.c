@@ -18,19 +18,22 @@
 #define MAX_LOGGED_USERS 100
 
 // Struttura per le informazioni del client
-typedef struct {
+typedef struct
+{
     int client_fd;
     char username[MAX_USERNAME];
 } client_info_t;
 
 // Struttura per tracciare gli utenti loggati
-typedef struct {
+typedef struct
+{
     char username[MAX_USERNAME];
     bool in_use;
 } logged_user_t;
 
 // Struttura per tracciare i client connessi
-typedef struct client_node {
+typedef struct client_node
+{
     client_info_t *client;
     struct client_node *next;
 } client_node_t;
@@ -44,10 +47,13 @@ static pthread_mutex_t mutex_client_list = PTHREAD_MUTEX_INITIALIZER;
 static volatile sig_atomic_t shutdown_server = 0;
 
 // Funzione per aggiungere un utente alla lista degli utenti loggati
-int aggiungi_utente_loggato(const char *username) {
+int aggiungi_utente_loggato(const char *username)
+{
     pthread_mutex_lock(&mutex_logged_users);
-    for (int i = 0; i < MAX_LOGGED_USERS; i++) {
-        if (!logged_users[i].in_use) {
+    for (int i = 0; i < MAX_LOGGED_USERS; i++)
+    {
+        if (!logged_users[i].in_use)
+        {
             strncpy(logged_users[i].username, username, MAX_USERNAME - 1);
             logged_users[i].username[MAX_USERNAME - 1] = '\0';
             logged_users[i].in_use = true;
@@ -60,10 +66,13 @@ int aggiungi_utente_loggato(const char *username) {
 }
 
 // Funzione per rimuovere un utente dalla lista degli utenti loggati
-void rimuovi_utente_loggato(const char *username) {
+void rimuovi_utente_loggato(const char *username)
+{
     pthread_mutex_lock(&mutex_logged_users);
-    for (int i = 0; i < MAX_LOGGED_USERS; i++) {
-        if (logged_users[i].in_use && strcmp(logged_users[i].username, username) == 0) {
+    for (int i = 0; i < MAX_LOGGED_USERS; i++)
+    {
+        if (logged_users[i].in_use && strcmp(logged_users[i].username, username) == 0)
+        {
             logged_users[i].in_use = false;
             break;
         }
@@ -72,10 +81,13 @@ void rimuovi_utente_loggato(const char *username) {
 }
 
 // Funzione per verificare se un utente è già loggato
-int utente_gia_loggato(const char *username) {
+int utente_gia_loggato(const char *username)
+{
     pthread_mutex_lock(&mutex_logged_users);
-    for (int i = 0; i < MAX_LOGGED_USERS; i++) {
-        if (logged_users[i].in_use && strcmp(logged_users[i].username, username) == 0) {
+    for (int i = 0; i < MAX_LOGGED_USERS; i++)
+    {
+        if (logged_users[i].in_use && strcmp(logged_users[i].username, username) == 0)
+        {
             pthread_mutex_unlock(&mutex_logged_users);
             return 1;
         }
@@ -85,9 +97,11 @@ int utente_gia_loggato(const char *username) {
 }
 
 // Funzione per aggiungere un client alla lista dei client connessi
-void aggiungi_client(client_info_t *client) {
+void aggiungi_client(client_info_t *client)
+{
     client_node_t *node = malloc(sizeof(client_node_t));
-    if (!node) return;
+    if (!node)
+        return;
 
     node->client = client;
     node->next = NULL;
@@ -99,15 +113,21 @@ void aggiungi_client(client_info_t *client) {
 }
 
 // Funzione per rimuovere un client dalla lista dei client connessi
-void rimuovi_client(client_info_t *client) {
+void rimuovi_client(client_info_t *client)
+{
     pthread_mutex_lock(&mutex_client_list);
     client_node_t *prev = NULL;
     client_node_t *curr = client_list;
-    while (curr) {
-        if (curr->client == client) {
-            if (prev) {
+    while (curr)
+    {
+        if (curr->client == client)
+        {
+            if (prev)
+            {
                 prev->next = curr->next;
-            } else {
+            }
+            else
+            {
                 client_list = curr->next;
             }
             free(curr);
@@ -120,10 +140,12 @@ void rimuovi_client(client_info_t *client) {
 }
 
 // Funzione per inviare MSG_SERVER_SHUTDOWN a tutti i client
-void invia_shutdown_a_tutti() {
+void invia_shutdown_a_tutti()
+{
     pthread_mutex_lock(&mutex_client_list);
     client_node_t *curr = client_list;
-    while (curr) {
+    while (curr)
+    {
         invia_messaggio(curr->client->client_fd, MSG_SERVER_SHUTDOWN, "Server in chiusura");
         close(curr->client->client_fd);
         curr = curr->next;
@@ -132,15 +154,23 @@ void invia_shutdown_a_tutti() {
 }
 
 // Handler per il segnale SIGINT
-void handle_sigint(int sig) {
+void handle_sigint(int sig)
+{
+    sig = 0; // Per sopprimere il warning
+    if (sig == 0)
+    {
+        printf("Arresto del server tramite CTRL + C ricevuto.\n");
+    }
     shutdown_server = 1;
 }
 
 // Funzione per pulire la lista dei client
-void pulisci_client_list() {
+void pulisci_client_list()
+{
     pthread_mutex_lock(&mutex_client_list);
     client_node_t *curr = client_list;
-    while (curr) {
+    while (curr)
+    {
         client_node_t *temp = curr;
         curr = curr->next;
         close(temp->client->client_fd);
@@ -152,19 +182,23 @@ void pulisci_client_list() {
 }
 
 // Funzione per gestire ogni connessione client
-void *handle_client(void *arg) {
+void *handle_client(void *arg)
+{
     client_info_t *client = (client_info_t *)arg;
     int client_fd = client->client_fd;
     char *current_username = client->username;
 
     aggiungi_client(client);
 
-    while (1) {
+    while (1)
+    {
         messaggio_t *msg = ricevi_messaggio(client_fd);
-        if (!msg) {
+        if (!msg)
+        {
             printf("Client %s disconnesso\n",
                    current_username[0] ? current_username : "non autenticato");
-            if (current_username[0]) {
+            if (current_username[0])
+            {
                 rimuovi_utente_loggato(current_username);
             }
             break;
@@ -175,75 +209,128 @@ void *handle_client(void *arg) {
                msg->tipo,
                msg->payload ? msg->payload : "vuoto");
 
-        switch (msg->tipo) {
-            case MSG_REGISTRA_UTENTE:
-                if (registra_utente(msg->payload) == 0) {
+        switch (msg->tipo)
+        {
+        case MSG_REGISTRA_UTENTE:
+            if (registra_utente(msg->payload) == 0)
+            {
+                strncpy(current_username, msg->payload, MAX_USERNAME - 1);
+                current_username[MAX_USERNAME - 1] = '\0';
+                invia_messaggio(client_fd, MSG_OK, "Utente registrato con successo");
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Username già in uso");
+            }
+            break;
+
+        case MSG_LOGIN_UTENTE:
+            if (current_username[0] != '\0')
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Già autenticato");
+                break;
+            }
+            if (utente_registrato(msg->payload))
+            {
+                if (utente_gia_loggato(msg->payload))
+                {
+                    invia_messaggio(client_fd, MSG_ERR, "Utente già loggato");
+                }
+                else
+                {
                     strncpy(current_username, msg->payload, MAX_USERNAME - 1);
                     current_username[MAX_USERNAME - 1] = '\0';
-                    invia_messaggio(client_fd, MSG_OK, "Utente registrato con successo");
-                } else {
-                    invia_messaggio(client_fd, MSG_ERR, "Username già in uso");
+                    aggiungi_utente_loggato(current_username);
+                    invia_messaggio(client_fd, MSG_OK, "Login effettuato");
                 }
-                break;
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Utente non trovato");
+            }
+            break;
 
-            case MSG_LOGIN_UTENTE:
-                if (current_username[0] != '\0') {
-                    invia_messaggio(client_fd, MSG_ERR, "Già autenticato");
-                    break;
-                }
-                if (utente_registrato(msg->payload)) {
-                    if (utente_gia_loggato(msg->payload)) {
-                        invia_messaggio(client_fd, MSG_ERR, "Utente già loggato");
-                    } else {
-                        strncpy(current_username, msg->payload, MAX_USERNAME - 1);
-                        current_username[MAX_USERNAME - 1] = '\0';
-                        aggiungi_utente_loggato(current_username);
-                        invia_messaggio(client_fd, MSG_OK, "Login effettuato");
-                    }
-                } else {
-                    invia_messaggio(client_fd, MSG_ERR, "Utente non trovato");
-                }
+        case MSG_MATRICE:
+            if (current_username[0] == '\0')
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
                 break;
-
-            case MSG_MATRICE:
-                if (current_username[0] == '\0') {
-                    invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
-                    break;
-                }
+            }
+            {
+                char *matrice = genera_matrice_stringa(4, 4);
+                if (matrice)
                 {
-                    char *matrice = genera_matrice_stringa(4, 4);
-                    if (matrice) {
-                        invia_messaggio(client_fd, MSG_MATRICE, matrice);
-                        free(matrice);
-                    } else {
-                        invia_messaggio(client_fd, MSG_ERR, "Errore generazione matrice");
-                    }
+                    invia_messaggio(client_fd, MSG_MATRICE, matrice);
+                    free(matrice);
                 }
-                break;
+                else
+                {
+                    invia_messaggio(client_fd, MSG_ERR, "Errore generazione matrice");
+                }
+            }
+            break;
 
-            case MSG_PAROLA:
-                if (current_username[0] == '\0') {
-                    invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
-                    break;
-                }
-                if (strlen(msg->payload) > 16) {
-                    invia_messaggio(client_fd, MSG_ERR, "Parola troppo lunga");
-                    break;
-                }
-                if (cerco(msg->payload)) {
-                    invia_messaggio(client_fd, MSG_OK, "Parola valida");
-                } else {
-                    invia_messaggio(client_fd, MSG_ERR, "Parola non valida o non presente nel dizionario");
-                }
+        case MSG_PAROLA:
+            if (current_username[0] == '\0')
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
                 break;
+            }
+            if (strlen(msg->payload) > 16)
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Parola troppo lunga");
+                break;
+            }
+            if (cerco(msg->payload))
+            {
+                invia_messaggio(client_fd, MSG_OK, "Parola valida");
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Parola non valida o non presente nel dizionario");
+            }
+            break;
+        case MSG_POST_BACHECA:
+            if (current_username[0] == '\0')
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
+                break;
+            }
+            if (strlen(msg->payload) > 128)
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Messaggio troppo lungo");
+                break;
+            }
+            if (aggiungi_messaggio(current_username, msg->payload) == 0)
+            {
+                invia_messaggio(client_fd, MSG_OK, "Messaggio pubblicato con successo");
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Errore nella pubblicazione del messaggio");
+            }
+            break;
 
-            case MSG_SERVER_SHUTDOWN:
-                invia_messaggio(client_fd, MSG_OK, "Shutdown ricevuto");
-                break;
+        case MSG_SHOW_BACHECA:
+        {
+            char buffer[1024];
+            if (recupera_bacheca_csv(buffer, sizeof(buffer)) == 0)
+            {
+                invia_messaggio(client_fd, MSG_SHOW_BACHECA, buffer);
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Errore nel recupero della bacheca");
+            }
+        }
+        break;
+        case MSG_SERVER_SHUTDOWN:
+            invia_messaggio(client_fd, MSG_OK, "Shutdown ricevuto");
+            break;
 
-            default:
-                invia_messaggio(client_fd, MSG_ERR, "Comando non riconosciuto");
-                break;
+        default:
+            invia_messaggio(client_fd, MSG_ERR, "Comando non riconosciuto");
+            break;
         }
 
         libera_messaggio(msg);
@@ -255,30 +342,41 @@ void *handle_client(void *arg) {
     return NULL;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     // Configura il gestore del segnale SIGINT
     struct sigaction sa;
     sa.sa_handler = handle_sigint;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    if (sigaction(SIGINT, &sa, NULL) == -1) {
+    if (sigaction(SIGINT, &sa, NULL) == -1)
+    {
         perror("Errore nella configurazione di sigaction");
         exit(EXIT_FAILURE);
     }
 
-    if (argc != 2) {
+    if (argc != 2)
+    {
         fprintf(stderr, "Uso: %s <porta>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    // Carica utenti e dizionario
-    if (carica_utenti() != 0) {
+    // Carica utenti, dizionario e inizializza la bacheca
+    if (carica_utenti() != 0)
+    {
         fprintf(stderr, "Errore nel caricamento degli utenti\n");
         exit(EXIT_FAILURE);
     }
 
-    if (carica_dizionario("dictionary_ita.txt") != 0) {
+    if (carica_dizionario("dictionary_ita.txt") != 0)
+    {
         fprintf(stderr, "Errore nel caricamento del dizionario\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (inizializza_bacheca() != 0)
+    {
+        fprintf(stderr, "Errore nell'inizializzazione della bacheca\n");
         exit(EXIT_FAILURE);
     }
 
@@ -287,14 +385,16 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in server_addr;
 
     // Creazione del socket
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
         perror("Errore nella creazione del socket");
         exit(EXIT_FAILURE);
     }
 
     // Impostazione delle opzioni del socket
     int opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1)
+    {
         perror("Errore setsockopt");
         close(server_fd);
         exit(EXIT_FAILURE);
@@ -306,14 +406,16 @@ int main(int argc, char *argv[]) {
     server_addr.sin_port = htons(port);
 
     // Binding del socket
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
+    {
         perror("Errore nel binding");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
     // Ascolto delle connessioni in arrivo
-    if (listen(server_fd, BACKLOG) == -1) {
+    if (listen(server_fd, BACKLOG) == -1)
+    {
         perror("Errore nella listen");
         close(server_fd);
         exit(EXIT_FAILURE);
@@ -322,20 +424,24 @@ int main(int argc, char *argv[]) {
     printf("Server in ascolto sulla porta %d...\n", port);
 
     // Ciclo principale del server
-    while (!shutdown_server) {
+    while (!shutdown_server)
+    {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
 
         client_info_t *client_info = malloc(sizeof(client_info_t));
-        if (!client_info) {
+        if (!client_info)
+        {
             perror("Errore allocazione memoria");
             continue;
         }
 
         // Accettazione di una nuova connessione
         client_info->client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
-        if (client_info->client_fd == -1) {
-            if (shutdown_server) {
+        if (client_info->client_fd == -1)
+        {
+            if (shutdown_server)
+            {
                 free(client_info);
                 break;
             }
@@ -352,7 +458,8 @@ int main(int argc, char *argv[]) {
 
         // Creazione di un thread per gestire il client
         pthread_t thread;
-        if (pthread_create(&thread, NULL, handle_client, client_info) != 0) {
+        if (pthread_create(&thread, NULL, handle_client, client_info) != 0)
+        {
             perror("Errore creazione thread");
             close(client_info->client_fd);
             free(client_info);

@@ -1,4 +1,3 @@
-// bacheca.c
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,8 +54,9 @@ int recupera_bacheca_csv(char *buffer, size_t size) {
     pthread_mutex_lock(&mutex_bacheca);
 
     buffer[0] = '\0';
-    int piena = 1; // Assume che la bacheca sia piena, perché potrebbe non esserci spazio vuoto
-    // Vado a verificare se la bacheca è piena o meno
+    int piena = 1;
+    
+    // Verifica se la bacheca è piena
     for (int i = 0; i < MAX_MESSAGGI; i++) {
         if (strlen(bacheca[i].autore) == 0 && strlen(bacheca[i].testo) == 0) {
             piena = 0;
@@ -65,15 +65,23 @@ int recupera_bacheca_csv(char *buffer, size_t size) {
     }
 
     int count = piena ? MAX_MESSAGGI : indice_inserimento;
-
+    
+    // Si parte dall'ultimo messaggio inserito e andiamo indietro
     for (int i = 0; i < count; i++) {
-        int index = (indice_inserimento + i) % MAX_MESSAGGI;
+        // Calcolo l'indice da cui partire
+        int index = (indice_inserimento - 1 - i + MAX_MESSAGGI) % MAX_MESSAGGI;
+        
         if (strlen(bacheca[index].autore) > 0 && strlen(bacheca[index].testo) > 0) {
-            strncat(buffer, bacheca[index].autore, size - strlen(buffer) - 1);
-            strncat(buffer, ",", size - strlen(buffer) - 1);
-            strncat(buffer, bacheca[index].testo, size - strlen(buffer) - 1);
-            if (i < count - 1) { // Aggiungi una virgola solo se non è l'ultimo elemento
-                strncat(buffer, ",", size - strlen(buffer) - 1);
+            char temp[256];
+            snprintf(temp, sizeof(temp), "%s,%s", 
+                    bacheca[index].autore, 
+                    bacheca[index].testo);
+            
+            if (strlen(buffer) + strlen(temp) + 2 < size) {
+                if (strlen(buffer) > 0) {
+                    strcat(buffer, ",");
+                }
+                strcat(buffer, temp);
             }
         }
     }
