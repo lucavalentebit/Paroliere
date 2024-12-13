@@ -1,6 +1,7 @@
 {
     "files.associations": {
-        "pthread_utils.h": "c"
+        "pthread_utils.h": "c",
+        "paroliere_utenti.h": "c"
     },
     "C_Cpp.default.compilerPath": ""
 }

@@ -1,4 +1,3 @@
-// messaggio.h
 #ifndef MESSAGGIO_H
 #define MESSAGGIO_H
 
@@ -19,19 +18,20 @@
 #define MSG_CANCELLA_UTENTE 'D'
 #define MSG_LOGIN_UTENTE 'L'
 
-typedef struct {
-    unsigned int lunghezza;  // lunghezza del payload
-    char tipo;               // tipo di messaggio
-    char* payload;           // dati effettivi
+typedef struct
+{
+    unsigned int lunghezza; // lunghezza del payload
+    char tipo;              // tipo di messaggio
+    char *payload;          // dati effettivi
 } messaggio_t;
 
 // Invia un messaggio tramite socket
-int invia_messaggio(int socket, char tipo, const char* payload);
+int invia_messaggio(int socket, char tipo, const char *payload);
 
 // Ricevi un messaggio dal socket
-messaggio_t* ricevi_messaggio(int socket);
+messaggio_t *ricevi_messaggio(int socket);
 
 // Libera la struttura del messaggio
-void libera_messaggio(messaggio_t* msg);
+void libera_messaggio(messaggio_t *msg);
 
 #endif
