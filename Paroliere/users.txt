@@ -1,6 +1,7 @@
-testuser
-alessio
-testa
-ALESSIO
-a1
-a2
+testuser:0
+alessio:12
+testa:5
+ALESSIO:0
+a1:26
+abcdefghil:0
+1234567890:0

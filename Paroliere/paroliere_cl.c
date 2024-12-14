@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 700 // Per sigaction, perché sigaction fa parte di POSIX.1-2008
+#define _XOPEN_SOURCE 700 // Per sigaction
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,20 +8,19 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/select.h>
+#include <getopt.h>
+#include <ctype.h>
 #include "messaggio.h"
 
-// Flag per il controllo della chiusura
 static volatile sig_atomic_t running = 1;
 static const char PROMPT[] = "[PROMPT PAROLIERE] --> ";
 
-// Handler per SIGINT
 void handle_sigint(int sig)
 {
-    (void)sig; // Cast a void per sopprimere il warning
+    (void)sig;
     running = 0;
 }
 
-// Funzione per la chiusura pulita del client
 void chiudi_client(int sock)
 {
     printf("Chiusura della connessione...\n");
@@ -29,21 +28,24 @@ void chiudi_client(int sock)
     printf("Client terminato.\n");
 }
 
-// Funzione helper per estrarre parametri dai comandi
-const char *estrai_parametro(const char *input, const char *comando)
+void mostra_aiuto()
 {
-    size_t len_comando = strlen(comando);
-    if (strncmp(input, comando, len_comando) == 0)
-    {
-        const char *param = input + len_comando;
-        return (strlen(param) > 0) ? param : NULL;
-    }
-    return NULL;
+    printf("Comandi disponibili:\n");
+    printf("- aiuto: Mostra l'elenco dei comandi disponibili per il client e la loro sintassi.\n");
+    printf("- registra_utente <nome_utente>: Registra un nuovo utente con il nome <nome_utente>. Il nome deve essere univoco e di massimo 10 caratteri alfanumerici.\n");
+    printf("- cancella_utente <nome_utente>: Cancella un utente se esistente all'interno del db.\n");
+    printf("- login_utente <nome_utente>: Permette di accedere ad un utente se pre-registrato.\n");
+    printf("- matrice: Richiede la matrice di gioco al server.\n");
+    printf("- p <parola>: Propone la parola <parola> al server.\n");
+    printf("- msg <messaggio>: Pubblica un messaggio di massimo 128 caratteri sulla Bacheca.\n");
+    printf("- show-msg: Mostra il contenuto della bacheca.\n");
+    printf("- punti_finali: Richiede il punteggio totale dell'utente.\n");
+    printf("- fine: Disconnette il client dal server e termina la connessione.\n");
+    printf("\n");
 }
 
 int main(int argc, char *argv[])
 {
-    // Configurazione del gestore SIGINT
     struct sigaction sa;
     sa.sa_handler = handle_sigint;
     sigemptyset(&sa.sa_mask);
@@ -54,25 +56,47 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (argc != 3)
+    const char *server_ip = NULL;
+    int port = 0;
+
+    static struct option long_options[] = {
+        {"server", required_argument, 0, 's'},
+        {"port", required_argument, 0, 'p'},
+        {0, 0, 0, 0}};
+
+    int opt;
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "s:p:", long_options, &option_index)) != -1)
     {
-        fprintf(stderr, "Uso: %s <nome_server> <porta>\n", argv[0]);
+        switch (opt)
+        {
+        case 's':
+            server_ip = optarg;
+            break;
+        case 'p':
+            port = atoi(optarg);
+            break;
+        default:
+            fprintf(stderr, "Uso: %s --server <nome_server> --port <porta>\n", argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (!server_ip || port == 0)
+    {
+        fprintf(stderr, "Uso: %s --server <nome_server> --port <porta>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    const char *server_ip = argv[1];
-    int port = atoi(argv[2]);
     int sock;
     struct sockaddr_in server_addr;
 
-    // Creazione del socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
         perror("Errore nella creazione del socket");
         exit(EXIT_FAILURE);
     }
 
-    // Configurazione dell'indirizzo del server
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
     if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0)
@@ -82,7 +106,6 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    // Connessione al server
     if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
         perror("Errore nella connessione al server");
@@ -99,14 +122,12 @@ int main(int argc, char *argv[])
     char input[1024];
     bool need_prompt = false;
 
-    // Loop principale
     while (running)
     {
         FD_ZERO(&read_fds);
         FD_SET(STDIN_FILENO, &read_fds);
         FD_SET(sock, &read_fds);
 
-        // Timeout di 1 secondo per controllare il flag running
         tv.tv_sec = 1;
         tv.tv_usec = 0;
 
@@ -121,9 +142,8 @@ int main(int argc, char *argv[])
         }
 
         if (activity == 0)
-            continue; // Timeout, no activity
+            continue;
 
-        // Input da tastiera
         if (FD_ISSET(STDIN_FILENO, &read_fds))
         {
             if (fgets(input, sizeof(input), stdin) == NULL)
@@ -139,35 +159,65 @@ int main(int argc, char *argv[])
                 break;
             }
 
-            // Estrazione del comando principale
             char *command = strtok(input, " ");
-            const char *param = strtok(NULL, "");
+            char *param = strtok(NULL, "");
 
-            // Gestione dei comandi
-            switch (command ? command[0] : '\0')
+            if (command)
             {
-            case 'r':
-                if (strcmp(command, "registra_utente") == 0 && param)
+                if (strcmp(command, "registra_utente") == 0)
                 {
-                    if (invia_messaggio(sock, MSG_REGISTRA_UTENTE, param) < 0)
+                    if (param)
                     {
-                        perror("Errore nell'invio del messaggio");
-                        running = 0;
+                        if (strlen(param) > 10)
+                        {
+                            printf("Errore: Il nome utente deve essere di massimo 10 caratteri alfanumerici.\n");
+                        }
+                        else
+                        {
+                            bool valido = true;
+                            for (size_t i = 0; i < strlen(param); i++)
+                            {
+                                if (!isalnum(param[i]))
+                                {
+                                    valido = false;
+                                    break;
+                                }
+                            }
+                            if (!valido)
+                            {
+                                printf("Errore: Il nome utente deve contenere solo caratteri alfanumerici.\n");
+                            }
+                            else
+                            {
+                                if (invia_messaggio(sock, MSG_REGISTRA_UTENTE, param) < 0)
+                                {
+                                    perror("Errore nell'invio del messaggio");
+                                    running = 0;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        printf("Errore: Specificare il nome utente.\n");
                     }
                 }
-                break;
-            case 'l':
-                if (strcmp(command, "login_utente") == 0 && param)
+                else if (strcmp(command, "login_utente") == 0)
                 {
-                    if (invia_messaggio(sock, MSG_LOGIN_UTENTE, param) < 0)
+                    if (param)
                     {
-                        perror("Errore nell'invio del messaggio");
-                        running = 0;
+                        if (invia_messaggio(sock, MSG_LOGIN_UTENTE, param) < 0)
+                        {
+                            perror("Errore nell'invio del messaggio");
+                            running = 0;
+                        }
+                    }
+                    else
+                    {
+                        printf("Errore: Specificare il nome utente.\n");
                     }
                 }
-                break;
-            case 'm':
-                if (strcmp(command, "matrice") == 0)
+                else if (strcmp(command, "matrice") == 0)
                 {
                     if (invia_messaggio(sock, MSG_MATRICE, "matrice") < 0)
                     {
@@ -175,17 +225,29 @@ int main(int argc, char *argv[])
                         running = 0;
                     }
                 }
-                else if (strcmp(command, "msg") == 0 && param)
+                else if (strcmp(command, "msg") == 0)
                 {
-                    if (invia_messaggio(sock, MSG_POST_BACHECA, param) < 0)
+                    if (param)
                     {
-                        perror("Errore nell'invio del messaggio");
-                        running = 0;
+                        if (strlen(param) > 128)
+                        {
+                            printf("Errore: Il messaggio deve essere di massimo 128 caratteri.\n");
+                        }
+                        else
+                        {
+                            if (invia_messaggio(sock, MSG_POST_BACHECA, param) < 0)
+                            {
+                                perror("Errore nell'invio del messaggio");
+                                running = 0;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        printf("Errore: Specificare il messaggio.\n");
                     }
                 }
-                break;
-            case 's':
-                if (strcmp(command, "show-msg") == 0)
+                else if (strcmp(command, "show-msg") == 0)
                 {
                     if (invia_messaggio(sock, MSG_SHOW_BACHECA, "show-msg") < 0)
                     {
@@ -193,20 +255,79 @@ int main(int argc, char *argv[])
                         running = 0;
                     }
                 }
-                break;
-            default:
-                if (invia_messaggio(sock, MSG_PAROLA, input) < 0)
+                else if (strcmp(command, "aiuto") == 0)
                 {
-                    perror("Errore nell'invio del messaggio");
-                    running = 0;
+                    mostra_aiuto();
                 }
-                break;
+                else if (strcmp(command, "p") == 0)
+                {
+                    if (param)
+                    {
+                        if (invia_messaggio(sock, MSG_PAROLA, param) < 0)
+                        {
+                            perror("Errore nell'invio del messaggio");
+                            running = 0;
+                        }
+                    }
+                    else
+                    {
+                        printf("Errore: Specificare la parola da proporre.\n");
+                    }
+                }
+                else if (strcmp(command, "punti_finali") == 0)
+                {
+                    if (invia_messaggio(sock, MSG_PUNTI_FINALI, "punti_finali") < 0)
+                    {
+                        perror("Errore nell'invio del messaggio");
+                        running = 0;
+                    }
+                }
+                else if (strcmp(command, "cancella_utente") == 0)
+                {
+                    if (param)
+                    {
+                        if (strlen(param) > 10)
+                        {
+                            printf("Errore: Il nome utente deve essere di massimo 10 caratteri.\n");
+                        }
+                        else
+                        {
+                            bool valido = true;
+                            for (size_t i = 0; i < strlen(param); i++)
+                            {
+                                if (!isalnum(param[i]))
+                                {
+                                    valido = false;
+                                    break;
+                                }
+                            }
+                            if (!valido)
+                            {
+                                printf("Errore: Il nome utente deve contenere solo caratteri alfanumerici.\n");
+                            }
+                            else
+                            {
+                                if (invia_messaggio(sock, MSG_CANCELLA_UTENTE, param) < 0)
+                                {
+                                    perror("Errore nell'invio del messaggio");
+                                    running = 0;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        printf("Errore: Specificare il nome utente da cancellare.\n");
+                    }
+                }
+                {
+                    printf("Errore: Comando non riconosciuto. Digitare 'aiuto' per la lista dei comandi.\n");
+                }
             }
 
             need_prompt = true;
         }
 
-        // Gestione messaggi dal server
         if (FD_ISSET(sock, &read_fds))
         {
             messaggio_t *response = ricevi_messaggio(sock);
@@ -230,6 +351,25 @@ int main(int argc, char *argv[])
                 printf("Matrice ricevuta:\n%s\n", response->payload ? response->payload : "");
                 break;
 
+            case MSG_TEMPO_ATTESA:
+                printf("La prossima partita inizierà tra %s secondi\n", response->payload ? response->payload : "");
+                break;
+
+            case MSG_PUNTI_PAROLA:
+                if (response->payload && strcmp(response->payload, "0") != 0)
+                {
+                    printf("Punti assegnati: %s\n", response->payload);
+                }
+                else
+                {
+                    printf("Parola già proposta. Punti assegnati: 0\n");
+                }
+                break;
+
+            case MSG_PUNTI_FINALI:
+                printf("Punti Totali: %s\n", response->payload ? response->payload : "0");
+                break;
+
             case MSG_SHOW_BACHECA:
                 printf("Bacheca dei messaggi:\n");
                 if (response->payload)
@@ -251,7 +391,7 @@ int main(int argc, char *argv[])
 
             case MSG_SERVER_SHUTDOWN:
                 printf("Il server sta chiudendo. Chiusura del client in corso...\n");
-                running = 0; // Imposta il flag per uscire dal loop
+                running = 0;
                 break;
 
             default:
@@ -270,7 +410,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Chiusura pulita
     chiudi_client(sock);
     return 0;
 }

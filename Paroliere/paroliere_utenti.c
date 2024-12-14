@@ -1,4 +1,4 @@
-// utenti.c
+// paroliere_utenti.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,13 +8,13 @@
 #define USERS_FILE "./users.txt"
 
 static pthread_mutex_t mutex_utenti = PTHREAD_MUTEX_INITIALIZER;
-static char utenti_registrati[MAX_USERS][11];
+static utente_t utenti_registrati[MAX_USERS];
 static int num_utenti = 0;
 
 // Carica gli utenti dal file all'avvio del server
 int carica_utenti()
 {
-    FILE *file = fopen(USERS_FILE, "a+"); // DEBUG -- Cambia "r" in "a+" per creare se non esiste
+    FILE *file = fopen(USERS_FILE, "a+");
     if (!file)
     {
         perror("Errore nell'apertura del file utenti");
@@ -24,12 +24,20 @@ int carica_utenti()
     char line[256];
     while (fgets(line, sizeof(line), file))
     {
-        line[strcspn(line, "\n")] = '\0'; // Rimuove il carattere di nuova linea
+        line[strcspn(line, "\n")] = '\0';
         if (strlen(line) > 0)
         {
-            strncpy(utenti_registrati[num_utenti], line, 10);
-            utenti_registrati[num_utenti][10] = '\0';
-            num_utenti++;
+            char *token = strtok(line, ":");
+            if (token)
+            {
+                strncpy(utenti_registrati[num_utenti].username, token, 10);
+                utenti_registrati[num_utenti].username[10] = '\0';
+                token = strtok(NULL, ":");
+                utenti_registrati[num_utenti].punti_totali = token ? atoi(token) : 0;
+                num_utenti++;
+                if (num_utenti >= MAX_USERS)
+                    break;
+            }
         }
     }
 
@@ -37,7 +45,7 @@ int carica_utenti()
     return 0;
 }
 
-// Modifica della funzione registra_utente per aggiungere messaggi di debug
+// Registra un nuovo utente
 int registra_utente(const char *username)
 {
     pthread_mutex_lock(&mutex_utenti);
@@ -45,19 +53,27 @@ int registra_utente(const char *username)
     // Verifica se l'utente è già registrato
     for (int i = 0; i < num_utenti; i++)
     {
-        if (strcmp(utenti_registrati[i], username) == 0)
+        if (strcmp(utenti_registrati[i].username, username) == 0)
         {
             printf("Utente '%s' già registrato.\n", username);
             pthread_mutex_unlock(&mutex_utenti);
-            return -1; // Utente già registrato
+            return -1;
         }
     }
 
-    // Aggiungi l'utente alla lista in memoria
-    strncpy(utenti_registrati[num_utenti], username, 10);
-    utenti_registrati[num_utenti][10] = '\0';
+    if (num_utenti >= MAX_USERS)
+    {
+        printf("Numero massimo di utenti raggiunto.\n");
+        pthread_mutex_unlock(&mutex_utenti);
+        return -1;
+    }
+
+    // Aggiungi l'utente alla lista in memoria con punti iniziali a 0
+    strncpy(utenti_registrati[num_utenti].username, username, 10);
+    utenti_registrati[num_utenti].username[10] = '\0';
+    utenti_registrati[num_utenti].punti_totali = 0;
     num_utenti++;
-    printf("Utente '%s' aggiunto alla lista in memoria.\n", username);
+    printf("Utente '%s' aggiunto con punti iniziali a 0.\n", username);
 
     // Scrivi l'utente nel file
     FILE *file = fopen(USERS_FILE, "a");
@@ -67,11 +83,10 @@ int registra_utente(const char *username)
         pthread_mutex_unlock(&mutex_utenti);
         return -1;
     }
-    printf("File '%s' aperto correttamente.\n", USERS_FILE);
 
-    fprintf(file, "%s\n", username);
+    fprintf(file, "%s:0\n", username);
     fclose(file);
-    printf("Utente '%s' scritto nel file.\n", username);
+    printf("Utente '%s' scritto nel file con punti iniziali a 0.\n", username);
 
     pthread_mutex_unlock(&mutex_utenti);
     return 0;
@@ -84,13 +99,120 @@ int utente_registrato(const char *username)
 
     for (int i = 0; i < num_utenti; i++)
     {
-        if (strcmp(utenti_registrati[i], username) == 0)
+        if (strcmp(utenti_registrati[i].username, username) == 0)
         {
             pthread_mutex_unlock(&mutex_utenti);
-            return 1; // Utente trovato
+            return 1;
         }
     }
 
     pthread_mutex_unlock(&mutex_utenti);
-    return 0; // Utente non trovato
+    return 0;
+}
+
+// Ottiene i punti totali di un utente
+int get_punti_totali(const char *username)
+{
+    pthread_mutex_lock(&mutex_utenti);
+
+    for (int i = 0; i < num_utenti; i++)
+    {
+        if (strcmp(utenti_registrati[i].username, username) == 0)
+        {
+            int punti = utenti_registrati[i].punti_totali;
+            pthread_mutex_unlock(&mutex_utenti);
+            return punti;
+        }
+    }
+
+    pthread_mutex_unlock(&mutex_utenti);
+    return 0;
+}
+
+// Aggiunge punti a un utente
+int aggiungi_punti(const char *username, int punti)
+{
+    pthread_mutex_lock(&mutex_utenti);
+
+    for (int i = 0; i < num_utenti; i++)
+    {
+        if (strcmp(utenti_registrati[i].username, username) == 0)
+        {
+            utenti_registrati[i].punti_totali += punti;
+            pthread_mutex_unlock(&mutex_utenti);
+            return 0;
+        }
+    }
+
+    pthread_mutex_unlock(&mutex_utenti);
+    return -1;
+}
+
+// Salva i punti cumulativi nel file
+int salva_punti_utenti()
+{
+    pthread_mutex_lock(&mutex_utenti);
+
+    FILE *file = fopen(USERS_FILE, "w");
+    if (!file)
+    {
+        perror("Errore nell'apertura del file utenti per il salvataggio");
+        pthread_mutex_unlock(&mutex_utenti);
+        return -1;
+    }
+
+    for (int i = 0; i < num_utenti; i++)
+    {
+        fprintf(file, "%s:%d\n", utenti_registrati[i].username, utenti_registrati[i].punti_totali);
+    }
+
+    fclose(file);
+    pthread_mutex_unlock(&mutex_utenti);
+    return 0;
+}
+
+int cancella_utente(const char *username)
+{
+    pthread_mutex_lock(&mutex_utenti);
+    
+    int found = -1;
+    for (int i = 0; i < num_utenti; i++)
+    {
+        if (strcmp(utenti_registrati[i].username, username) == 0)
+        {
+            found = i;
+            break;
+        }
+    }
+
+    if (found == -1)
+    {
+        pthread_mutex_unlock(&mutex_utenti);
+        return -1; // Utente non trovato
+    }
+
+    // Rimuovi l'utente dalla lista in memoria
+    for (int i = found; i < num_utenti - 1; i++)
+    {
+        utenti_registrati[i] = utenti_registrati[i + 1];
+    }
+    num_utenti--;
+
+    // Riscrivi il file users.txt senza l'utente eliminato
+    FILE *file = fopen(USERS_FILE, "w");
+    if (!file)
+    {
+        perror("Errore nella scrittura del file utenti");
+        pthread_mutex_unlock(&mutex_utenti);
+        return -1;
+    }
+
+    for (int i = 0; i < num_utenti; i++)
+    {
+        fprintf(file, "%s:%d\n", utenti_registrati[i].username, utenti_registrati[i].punti_totali);
+    }
+
+    fclose(file);
+    pthread_mutex_unlock(&mutex_utenti);
+    return 0;
 }
