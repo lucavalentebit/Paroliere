@@ -66,91 +66,44 @@ void *scorer_function(void *arg)
         {
             pthread_cond_wait(&cond_game_end, &mutex_game);
         }
+        
+        // Se il server sta chiudendo, termina
+        if (shutdown_server) {
+            pthread_mutex_unlock(&mutex_game);
+            break;
+        }
         pthread_mutex_unlock(&mutex_game);
 
-        if (shutdown_server)
-            break;
-
-        // Piccolo delay per gli ultimi punteggi
-        sleep(1);
-
-        // Raccoglie i punteggi dai client
-        int total_scores = get_number_of_clients();
-        score_node_t *scores = NULL;
-        int count = 0;
-
-        // Colleziona punteggi
-        while (count < total_scores && !shutdown_server)
-        {
-            score_node_t *node = dequeue_score();
-            if (node)
-            {
-                node->next = scores;
-                scores = node;
-                count++;
-            }
-        }
-
-        if (shutdown_server)
-            break;
-
-        // Calcola e invia classifica
-        if (count > 0)
-        {
-            // Ordina per punteggio decrescente
-            score_node_t *current;
-            score_node_t *last = NULL;
-            bool swapped;
-
-            do
-            {
-                swapped = false;
-                current = scores;
-
-                while (current->next != last)
-                {
-                    if (current->score < current->next->score)
-                    {
-                        // Swap scores
-                        int temp_score = current->score;
-                        current->score = current->next->score;
-                        current->next->score = temp_score;
-
-                        // Swap usernames
-                        char temp_username[MAX_USERNAME];
-                        strcpy(temp_username, current->username);
-                        strcpy(current->username, current->next->username);
-                        strcpy(current->next->username, temp_username);
-
-                        swapped = true;
-                    }
-                    current = current->next;
-                }
-                last = current;
-            } while (swapped);
-
-            // Prepara e invia classifica
-            char ranking[1024] = "";
-            current = scores;
-            while (current)
-            {
+        // Aspetta che tutti i client inviino i punteggi
+        pthread_mutex_lock(&mutex_client_list);
+        client_node_t *curr = client_list;
+        char ranking[1024] = "";
+        
+        // Costruisci la classifica dai punteggi dei client
+        while (curr) {
+            if (curr->client && curr->client->username[0] != '\0') {
                 char entry[128];
-                sprintf(entry, "%s,%d,", current->username, current->score);
+                snprintf(entry, sizeof(entry), "%s,%d,", 
+                    curr->client->username, 
+                    curr->client->game.part_points);
                 strcat(ranking, entry);
-                current = current->next;
+                
+                // Reset punteggi per il prossimo round
+                curr->client->game.part_points = 0;
+                curr->client->word_count = 0;
+                curr->client->score_submitted = false;
             }
-
-            // Invia la classifica
-            broadcast_message(MSG_PUNTI_FINALI, ranking);
-
-            // Cleanup
-            while (scores)
-            {
-                current = scores;
-                scores = scores->next;
-                free(current);
-            }
+            curr = curr->next;
         }
+        pthread_mutex_unlock(&mutex_client_list);
+
+        // Invia la classifica a tutti
+        if (strlen(ranking) > 0) {
+            broadcast_message(MSG_PUNTI_FINALI, ranking);
+        }
+
+        // Salva i punteggi nel file
+        salva_punti();
     }
     return NULL;
 }
@@ -161,6 +114,12 @@ void *gestione_temporale(void *arg)
     (void)arg;
     while (!shutdown_server)
     {
+        // Attende 5 secondi prima di pulire la classifica
+        sleep(5);
+
+        // Pulizia della classifica
+        pulisci_classifica(); // Utilizza la funzione corretta
+
         // Inizio della partita
         pthread_mutex_lock(&mutex_game);
         is_paused = false;
@@ -178,12 +137,18 @@ void *gestione_temporale(void *arg)
         pthread_mutex_unlock(&mutex_game);
 
         // Countdown durata partita
-        while (tempo_residuo > 0 && !shutdown_server)
+        while (tempo_residuo > 2 && !shutdown_server)
         {
             sleep(1); // Aspetta un secondo
             pthread_mutex_lock(&mutex_game);
             tempo_residuo--;
             pthread_mutex_unlock(&mutex_game);
+        }
+
+        if (tempo_residuo <= 2 && !shutdown_server)
+        {
+            broadcast_message(MSG_PUNTI_FINALI, "punti_finali");
+            sleep(2); // Attende i 2 secondi rimanenti
         }
 
         if (shutdown_server)
@@ -200,7 +165,7 @@ void *gestione_temporale(void *arg)
 
         // Inizio della pausa
         pthread_mutex_lock(&mutex_game);
-        tempo_residuo = 20; // Pausa fra le partite
+        tempo_residuo = 60; // Pausa fra le partite
         pthread_mutex_unlock(&mutex_game);
 
         // Countdown pausa
@@ -462,17 +427,6 @@ void *handle_client(void *arg)
                 invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
                 break;
             }
-
-            if (!client->score_submitted)
-            {
-                // Invia punteggio finale per questo round
-                enqueue_score(current_username, client->game.part_points);
-                client->score_submitted = true;
-            }
-
-            // Reset punteggi per prossimo round
-            client->game.part_points = 0;
-            client->word_count = 0;
             break;
 
         case MSG_CANCELLA_UTENTE:
@@ -757,32 +711,31 @@ int main(int argc, char *argv[])
     printf("Shutdown del server in corso...\n");
     // Invia messaggio di shutdown a tutti i client
     invia_shutdown_a_tutti();
-    printf("Debug 1\n");
+    
     // Pulisce la lista dei client
     pulisci_client_list();
-    printf("Debug 2\n");
-
+    
     // Pulisce altre risorse
     pulisci_bacheca();
-    printf("Debug 3\n");
+    
     libera_trie(NULL); // Assicurati che 'radice' sia accessibile
     pthread_mutex_destroy(&mutex_client_list);
     pthread_mutex_destroy(&mutex_logged_users);
-    printf("Debug 4\n");
+    
     // Attesa della terminazione del thread temporale
     pthread_join(tempo_thread, NULL);
-    printf("Debug 5\n");
+    
     // Attesa terminazione thread scorer
     pthread_join(scorer_thread, NULL);
     pthread_cond_destroy(&cond_game_end);
-    printf("Debug 6\n");
+    
     // Distrugge il semaforo
     sem_destroy(&client_sem);
-    printf("Debug 7\n");
+    
     // Libera la matrice condivisa
     free(shared_matrix);
     pthread_mutex_destroy(&mutex_matrix);
-    printf("Debug 8\n");
+    
     close(server_fd);
     printf("Server terminato correttamente.\n");
     return 0;

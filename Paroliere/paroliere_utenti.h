@@ -27,6 +27,9 @@ int get_punti_totali(const char *username);
 // Aggiunge punti a un utente
 int aggiungi_punti(const char *username, int punti);
 
+// Funzione per resettare i punti totali di tutti gli utenti
+void reset_punti_totali();
+
 // Salva i punti cumulativi nel file
 int salva_punti_utenti();
 

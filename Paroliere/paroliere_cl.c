@@ -368,7 +368,8 @@ int main(int argc, char *argv[])
                 break;
 
             case MSG_PUNTI_FINALI:
-            {
+            {   
+                invia_messaggio(sock, MSG_PUNTI_FINALI, "punti_finali"); //check if it works
                 printf("\nClassifica finale:\n");
                 char *token = strtok(response->payload, ",");
                 int pos = 1;

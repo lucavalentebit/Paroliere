@@ -8,100 +8,16 @@
 #include <signal.h>
 #include <errno.h>
 #include "messaggio.h"
-
+#include "paroliere_utenti.h"
 // Variabili globali
 static logged_user_t logged_users[MAX_LOGGED_USERS];
 pthread_mutex_t mutex_logged_users = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_log = PTHREAD_MUTEX_INITIALIZER;
 
-static client_node_t *client_list = NULL;
+client_node_t *client_list = NULL;
 pthread_mutex_t mutex_client_list = PTHREAD_MUTEX_INITIALIZER;
 volatile sig_atomic_t shutdown_server = 0;
 
-// Variabile globale per la coda dei punteggi
-score_queue_t score_queue;
-
-// Inizializza la coda dei punteggi
-void init_score_queue()
-{
-    score_queue.head = NULL;
-    score_queue.tail = NULL;
-    score_queue.count = 0;
-    pthread_mutex_init(&score_queue.mutex, NULL);
-    pthread_cond_init(&score_queue.cond, NULL);
-}
-
-// Inserisce un punteggio nella coda
-void enqueue_score(const char *username, int score)
-{
-    score_node_t *node = malloc(sizeof(score_node_t));
-    if (!node)
-        return;
-
-    strncpy(node->username, username, MAX_USERNAME - 1);
-    node->username[MAX_USERNAME - 1] = '\0';
-    node->score = score;
-    node->next = NULL;
-
-    pthread_mutex_lock(&score_queue.mutex);
-    if (score_queue.tail)
-    {
-        score_queue.tail->next = node;
-    }
-    else
-    {
-        score_queue.head = node;
-    }
-    score_queue.tail = node;
-    score_queue.count++;
-    pthread_cond_signal(&score_queue.cond);
-    pthread_mutex_unlock(&score_queue.mutex);
-}
-
-// Estrae un punteggio dalla coda
-score_node_t *dequeue_score()
-{
-    pthread_mutex_lock(&score_queue.mutex);
-    while (score_queue.count == 0 && !shutdown_server)
-    {
-        pthread_cond_wait(&score_queue.cond, &score_queue.mutex);
-    }
-
-    if (shutdown_server)
-    {
-        pthread_mutex_unlock(&score_queue.mutex);
-        return NULL;
-    }
-
-    score_node_t *node = score_queue.head;
-    if (node)
-    {
-        score_queue.head = node->next;
-        if (!score_queue.head)
-        {
-            score_queue.tail = NULL;
-        }
-        score_queue.count--;
-    }
-    pthread_mutex_unlock(&score_queue.mutex);
-    return node;
-}
-
-// Distrugge la coda dei punteggi
-void destroy_score_queue()
-{
-    pthread_mutex_lock(&score_queue.mutex);
-    score_node_t *current = score_queue.head;
-    while (current)
-    {
-        score_node_t *temp = current;
-        current = current->next;
-        free(temp);
-    }
-    pthread_mutex_unlock(&score_queue.mutex);
-    pthread_mutex_destroy(&score_queue.mutex);
-    pthread_cond_destroy(&score_queue.cond);
-}
 
 // Funzione per inviare un messaggio a tutti i client
 void broadcast_message(char tipo, const char *payload)
@@ -239,7 +155,6 @@ void pulisci_client_list()
         client_node_t *temp = curr;
         curr = curr->next;
         close(temp->client->client_fd);
-        free(temp->client);
         free(temp);
     }
     client_list = NULL;
@@ -296,6 +211,12 @@ int aggiorna_punti_utente(const char *username, int punti)
 int salva_punti()
 {
     return salva_punti_utenti();
+}
+
+// Funzione per il reset della classifica
+void pulisci_classifica()
+{
+    reset_punti_totali();
 }
 
 // Funzione per registrare eventi nel log

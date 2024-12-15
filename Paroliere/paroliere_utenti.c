@@ -158,6 +158,17 @@ int aggiungi_punti(const char *username, int punti)
     return -1;
 }
 
+// Resetta i punti totali di tutti gli utenti prima di una nuova partita
+void reset_punti_totali()
+{
+    pthread_mutex_lock(&mutex_utenti);
+    for (int i = 0; i < num_utenti; i++)
+    {
+        utenti_registrati[i].punti_totali = 0;
+    }
+    pthread_mutex_unlock(&mutex_utenti);
+}
+
 // Salva i punti cumulativi nel file
 int salva_punti_utenti()
 {

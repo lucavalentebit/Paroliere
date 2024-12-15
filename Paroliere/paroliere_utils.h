@@ -14,32 +14,6 @@
 #define MAX_STORED_WORDS 100
 #define MAX_WORD_LENGTH 17
 
-// Struttura per i punteggi dei giocatori
-typedef struct score_node
-{
-    char username[MAX_USERNAME];
-    int score;
-    struct score_node *next;
-} score_node_t;
-
-// Coda condivisa tra i thread client e lo scorer
-typedef struct
-{
-    score_node_t *head;
-    score_node_t *tail;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    int count;
-} score_queue_t;
-
-// Variabile globale per la coda dei punteggi
-extern score_queue_t score_queue;
-
-// Funzioni per gestire la coda dei punteggi
-void init_score_queue();
-void enqueue_score(const char *username, int score);
-score_node_t *dequeue_score();
-void destroy_score_queue();
 
 // Funzione per inviare un messaggio a tutti i client
 void broadcast_message(char tipo, const char *payload);
@@ -88,6 +62,7 @@ extern volatile sig_atomic_t shutdown_server;
 extern pthread_mutex_t mutex_client_list;
 extern pthread_mutex_t mutex_logged_users;
 extern int server_fd;
+extern client_node_t *client_list;
 extern pthread_mutex_t mutex_game;
 extern pthread_cond_t cond_game_end;
 extern bool is_paused;
@@ -111,6 +86,7 @@ int aggiorna_punti_utente(const char *username, int punti);
 // Salva i punti aggiornati
 int salva_punti();
 
+void pulisci_classifica();
 //Funzione di logging
 int log_event(const char *operation, const char *details);
 
