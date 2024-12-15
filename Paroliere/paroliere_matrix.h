@@ -23,4 +23,12 @@ int carica_dizionario(const char *filename);
 // Verifica parola nel dizionario usando trie
 int parola_nel_dizionario(const char *parola);
 
+// Imposta seed per la generazione della matrice
+void imposta_seed_matrice(unsigned int seed);
+
+//Caricamento delle Matrici da File
+int carica_matrici_da_file(const char *filename);
+char* ottieni_prossima_matrice();
+void libera_matrici();
+
 #endif

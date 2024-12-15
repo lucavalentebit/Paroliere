@@ -12,6 +12,7 @@
 // Variabili globali
 static logged_user_t logged_users[MAX_LOGGED_USERS];
 pthread_mutex_t mutex_logged_users = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_log = PTHREAD_MUTEX_INITIALIZER;
 
 static client_node_t *client_list = NULL;
 pthread_mutex_t mutex_client_list = PTHREAD_MUTEX_INITIALIZER;
@@ -268,12 +269,22 @@ int is_word_submitted(client_info_t *client, const char *word)
 }
 
 // Funzioni per la gestione dei segnali
-void handle_sigint(int sig)
-{
-    sig = 0; // Per sopprimere il warning
-    if (sig == 0)
-        printf("Arresto del server tramite CTRL + C ricevuto.\n");
+void handle_sigint(int sig) {
+    (void)sig;
+    const char msg[] = "\nRicevuto segnale di interruzione. Chiusura del server in corso...\n";
+    write(STDOUT_FILENO, msg, strlen(msg)); // write = signal safe
+    
     shutdown_server = 1;
+    
+    // Sveglia il thread scorer
+    pthread_mutex_lock(&mutex_game);
+    pthread_cond_signal(&cond_game_end);
+    pthread_mutex_unlock(&mutex_game);
+    
+    // Chiudi il socket principale per interrompere accept()
+    if (server_fd > 0) {
+        close(server_fd);
+    }
 }
 
 // Funzioni per la gestione dei punti utente
@@ -285,4 +296,38 @@ int aggiorna_punti_utente(const char *username, int punti)
 int salva_punti()
 {
     return salva_punti_utenti();
+}
+
+// Funzione per registrare eventi nel log
+int log_event(const char *operation, const char *details) {
+    time_t now;
+    struct tm *tm_info;
+    char timestamp[20];
+    FILE *f;
+    
+    // Usa fprintf invece di snprintf per il logging
+    pthread_mutex_lock(&mutex_log);
+    
+    f = fopen("paroliere.log", "a");
+    if (!f) {
+        pthread_mutex_unlock(&mutex_log);
+        return -1;
+    }
+
+    now = time(NULL);
+    tm_info = localtime(&now);
+    if (!tm_info) {
+        fclose(f);
+        pthread_mutex_unlock(&mutex_log);
+        return -1;
+    }
+
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", tm_info);
+    
+    fprintf(f, "%s,%s,%s\n", timestamp, operation, details);
+    fflush(f);  // Forza il flush del buffer
+    fclose(f);
+    
+    pthread_mutex_unlock(&mutex_log);
+    return 0;
 }

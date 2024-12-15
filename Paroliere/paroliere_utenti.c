@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+
+#include "paroliere_utils.h"
 #include "paroliere_utenti.h"
 
 #define USERS_FILE "./users.txt"
@@ -89,6 +91,14 @@ int registra_utente(const char *username)
     printf("Utente '%s' scritto nel file con punti iniziali a 0.\n", username);
 
     pthread_mutex_unlock(&mutex_utenti);
+
+    // Log dell'evento di registrazione utente
+    char details[128];
+    snprintf(details, sizeof(details), "Nome utente: %s", username);
+    log_event("REGISTRA_UTENTE", details);
+
+    return 0;
+
     return 0;
 }
 
@@ -171,10 +181,11 @@ int salva_punti_utenti()
     return 0;
 }
 
+// Cancella un utente
 int cancella_utente(const char *username)
 {
     pthread_mutex_lock(&mutex_utenti);
-    
+
     int found = -1;
     for (int i = 0; i < num_utenti; i++)
     {
@@ -214,5 +225,11 @@ int cancella_utente(const char *username)
 
     fclose(file);
     pthread_mutex_unlock(&mutex_utenti);
+
+    // Log dell'evento di cancellazione utente
+    char details[128];
+    snprintf(details, sizeof(details), "Nome utente: %s", username);
+    log_event("CANCELLA_UTENTE", details);
+
     return 0;
 }

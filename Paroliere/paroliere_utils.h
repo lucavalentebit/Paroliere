@@ -87,6 +87,10 @@ int utente_gia_loggato(const char *username);
 extern volatile sig_atomic_t shutdown_server;
 extern pthread_mutex_t mutex_client_list;
 extern pthread_mutex_t mutex_logged_users;
+extern int server_fd;
+extern pthread_mutex_t mutex_game;
+extern pthread_cond_t cond_game_end;
+extern bool is_paused;
 
 // Funzioni per la gestione dei client connessi
 void aggiungi_client(client_info_t *client);
@@ -106,5 +110,8 @@ int aggiorna_punti_utente(const char *username, int punti);
 
 // Salva i punti aggiornati
 int salva_punti();
+
+//Funzione di logging
+int log_event(const char *operation, const char *details);
 
 #endif // PAROLIERE_UTILS_H

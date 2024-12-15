@@ -24,19 +24,26 @@
 static sem_t client_sem;
 
 // Variabili globali per la gestione del tempo
-static pthread_mutex_t mutex_game = PTHREAD_MUTEX_INITIALIZER;
-static bool is_paused = false;
+pthread_mutex_t mutex_game = PTHREAD_MUTEX_INITIALIZER;
+bool is_paused = false;
 static int durata_partita = 180; // Durata in secondi, default 3 minuti
 static int tempo_residuo = 0;
 static pthread_t tempo_thread;
+
+// Variabili globali per la gestione dei parametri seed e file matrici
+static unsigned int seed_fornito = 0;
+static char *file_matrici = NULL;
 
 // Variabili globali per la matrice condivisa
 static char *shared_matrix = NULL;
 static pthread_mutex_t mutex_matrix = PTHREAD_MUTEX_INITIALIZER;
 
+// Variabile globale per il socket del server
+int server_fd;
+
 // Thread scorer e condition variable per la fine partita
 static pthread_t scorer_thread;
-static pthread_cond_t cond_game_end = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond_game_end = PTHREAD_COND_INITIALIZER;
 
 // Inizializza i punti della partita
 void inizializza_game(client_info_t *client)
@@ -58,9 +65,12 @@ void *scorer_function(void *arg)
         pthread_mutex_unlock(&mutex_game);
 
         if (shutdown_server)
+        {
+            pthread_mutex_unlock(&mutex_game);
             break;
+        }
 
-        // Aggiungi un piccolo delay
+        // Aggiungi un piccolo delay perché i client stanno ancora inviando i punteggi
         sleep(1);
 
         // Raccoglie i punteggi dai client
@@ -166,7 +176,7 @@ void *gestione_temporale(void *arg)
         {
             free(shared_matrix);
         }
-        shared_matrix = genera_matrice_stringa(4, 4);
+        shared_matrix = ottieni_prossima_matrice();
         pthread_mutex_unlock(&mutex_matrix);
 
         pthread_mutex_unlock(&mutex_game);
@@ -192,7 +202,7 @@ void *gestione_temporale(void *arg)
         // Inizio della pausa
         pthread_mutex_lock(&mutex_game);
         is_paused = true;
-        tempo_residuo = 10; // DA CAMBIARE 1 minuto di pausa
+        tempo_residuo = 10; // DA CAMBIARE a 1 minuto di pausa
         pthread_mutex_unlock(&mutex_game);
 
         // Countdown pausa
@@ -376,6 +386,15 @@ void *handle_client(void *arg)
                 char punti_str[16];
                 snprintf(punti_str, sizeof(punti_str), "%d", punti);
                 invia_messaggio(client_fd, MSG_PUNTI_PAROLA, punti_str);
+
+                // Log dell'evento di parola inviata
+                char details[256];
+                snprintf(details, sizeof(details), "Utente: %s Parola: %s", current_username, msg->payload);
+                log_event("PAROLA_INVIATA", details);
+
+                // Log dell'evento di punteggio assegnato
+                snprintf(details, sizeof(details), "Utente: %s Punteggio: %d", current_username, punti);
+                log_event("PUNTEGGIO", details);
             }
             break;
 
@@ -433,21 +452,21 @@ void *handle_client(void *arg)
             }
             break;
 
-            case MSG_CANCELLA_UTENTE:
-                if (current_username[0] == '\0')
-                {
-                    invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
-                    break;
-                }
-                if (cancella_utente(msg->payload) == 0)
-                {
-                    invia_messaggio(client_fd, MSG_OK, "Utente cancellato con successo");
-                }
-                else
-                {
-                    invia_messaggio(client_fd, MSG_ERR, "Errore nella cancellazione utente");
-                }
+        case MSG_CANCELLA_UTENTE:
+            if (current_username[0] == '\0')
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
                 break;
+            }
+            if (cancella_utente(msg->payload) == 0)
+            {
+                invia_messaggio(client_fd, MSG_OK, "Utente cancellato con successo");
+            }
+            else
+            {
+                invia_messaggio(client_fd, MSG_ERR, "Errore nella cancellazione utente");
+            }
+            break;
 
         case MSG_SERVER_SHUTDOWN:
             invia_messaggio(client_fd, MSG_OK, "Shutdown ricevuto");
@@ -490,11 +509,15 @@ int main(int argc, char *argv[])
     static struct option long_options[] = {
         {"port", required_argument, 0, 'p'},
         {"durata", required_argument, 0, 'd'},
+        {"seed", required_argument, 0, 's'},
+        {"matrici", required_argument, 0, 'm'},
         {0, 0, 0, 0}};
 
     int opt;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "p:d:", long_options, &option_index)) != -1)
+    unsigned int seed = 0;
+
+    while ((opt = getopt_long(argc, argv, "p:d:s:m", long_options, &option_index)) != -1)
     {
         switch (opt)
         {
@@ -504,8 +527,33 @@ int main(int argc, char *argv[])
         case 'd':
             durata_partita = atoi(optarg) * 60; // Converti minuti in secondi
             break;
+        case 's':
+            seed = (unsigned int)atoi(optarg);
+            seed_fornito = 1;
+            break;
+        case 'm':
+            file_matrici = strdup(optarg);
+            break;
         default:
-            fprintf(stderr, "Uso: %s --port <porta> [--durata <minuti>]\n", argv[0]);
+            fprintf(stderr, "Uso: %s --port <porta> [--matrici <data_filename>] [--durata <minuti>] [--seed <rnd_seed>]\n", argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
+    // Inizializza seed e caricamento matrici
+    if (seed_fornito)
+    {
+        imposta_seed_matrice(seed);
+    }
+    else
+    {
+        imposta_seed_matrice((unsigned int)time(NULL));
+    }
+
+    if (file_matrici)
+    {
+        if (carica_matrici_da_file(file_matrici) != 0)
+        {
+            fprintf(stderr, "Errore nel caricamento delle matrici dal file\n");
             exit(EXIT_FAILURE);
         }
     }
@@ -623,10 +671,10 @@ int main(int argc, char *argv[])
         client_info->client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
         if (client_info->client_fd == -1)
         {
-            if (shutdown_server)
+            if (shutdown_server || errno == EINTR)
             {
                 free(client_info);
-                break;
+                break; // Esci dal ciclo se shutdown o interrupt
             }
             perror("Errore accept");
             free(client_info);
@@ -664,34 +712,41 @@ int main(int argc, char *argv[])
         }
         pthread_detach(thread);
     }
+    if (file_matrici)
+    {
+        free(file_matrici);
+        libera_matrici();
+    }
 
     printf("Shutdown del server in corso...\n");
     // Invia messaggio di shutdown a tutti i client
     invia_shutdown_a_tutti();
-
+    printf("Debug 1\n");
     // Pulisce la lista dei client
     pulisci_client_list();
+    printf("Debug 2\n");
 
     // Pulisce altre risorse
     pulisci_bacheca();
+    printf("Debug 3\n");
     libera_trie(NULL); // Assicurati che 'radice' sia accessibile
     pthread_mutex_destroy(&mutex_client_list);
     pthread_mutex_destroy(&mutex_logged_users);
-
+    printf("Debug 4\n");
     // Attesa della terminazione del thread temporale
     pthread_join(tempo_thread, NULL);
-
+    printf("Debug 5\n");
     // Attesa terminazione thread scorer
     pthread_join(scorer_thread, NULL);
     pthread_cond_destroy(&cond_game_end);
-
+    printf("Debug 6\n");
     // Distrugge il semaforo
     sem_destroy(&client_sem);
-
+    printf("Debug 7\n");
     // Libera la matrice condivisa
     free(shared_matrix);
     pthread_mutex_destroy(&mutex_matrix);
-
+    printf("Debug 8\n");
     close(server_fd);
     printf("Server terminato correttamente.\n");
     return 0;

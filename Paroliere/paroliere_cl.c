@@ -320,6 +320,7 @@ int main(int argc, char *argv[])
                         printf("Errore: Specificare il nome utente da cancellare.\n");
                     }
                 }
+                else if (strcmp(command, "aiuto") != 0 && strcmp(command, "registra_utente") != 0 && strcmp(command, "login_utente") != 0 && strcmp(command, "matrice") != 0 && strcmp(command, "msg") != 0 && strcmp(command, "show-msg") != 0 && strcmp(command, "p") != 0 && strcmp(command, "punti_finali") != 0 && strcmp(command, "cancella_utente") != 0)
                 {
                     printf("Errore: Comando non riconosciuto. Digitare 'aiuto' per la lista dei comandi.\n");
                 }

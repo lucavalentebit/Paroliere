@@ -5,3 +5,6 @@ ALESSIO:0
 a1:26
 abcdefghil:0
 1234567890:0
+carlomagno:0
+pa:0
+aiutooddio:0
