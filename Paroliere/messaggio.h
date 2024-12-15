@@ -17,6 +17,7 @@
 #define MSG_SHOW_BACHECA 'S'
 #define MSG_CANCELLA_UTENTE 'D'
 #define MSG_LOGIN_UTENTE 'L'
+#define MSG_TIMEOUT 'X' 
 
 typedef struct
 {

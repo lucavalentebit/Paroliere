@@ -368,8 +368,23 @@ int main(int argc, char *argv[])
                 break;
 
             case MSG_PUNTI_FINALI:
-                printf("Punti Totali: %s\n", response->payload ? response->payload : "0");
+            {
+                printf("\nClassifica finale:\n");
+                char *token = strtok(response->payload, ",");
+                int pos = 1;
+                while (token != NULL)
+                {
+                    char *username = token;
+                    token = strtok(NULL, ",");
+                    if (!token)
+                        break;
+                    int score = atoi(token);
+                    printf("%d° %s: %d punti\n", pos++, username, score);
+                    token = strtok(NULL, ",");
+                }
+                fflush(stdout);
                 break;
+            }
 
             case MSG_SHOW_BACHECA:
                 printf("Bacheca dei messaggi:\n");

@@ -184,9 +184,9 @@ void imposta_seed_matrice(unsigned int seed)
     srand(seed);
 }
 
-/*Di seguito le funzioni per la gestione delle matrici, che vengono 
+/*Di seguito le funzioni per la gestione delle matrici, che vengono
   sia generate casualmente che caricate da file:
-  
+
     - genera_matrice_stringa: genera una matrice casuale di 4x4 caratteri
     - formatta_matrice_stringa: formatta la matrice in una stringa
     - converti_stringa_in_matrice: converte la stringa in una matrice
@@ -231,7 +231,6 @@ char *genera_matrice_stringa(int righe, int colonne)
     return matrice;
 }
 
-
 char *formatta_matrice_stringa(const char *input)
 {
     if (!input)
@@ -272,7 +271,6 @@ char *formatta_matrice_stringa(const char *input)
     return output;
 }
 
-
 void converti_stringa_in_matrice(const char *matrice_stringa)
 {
     int r = 0, c = 0;
@@ -299,7 +297,6 @@ void converti_stringa_in_matrice(const char *matrice_stringa)
         }
     }
 }
-
 
 int carica_matrici_da_file(const char *filename)
 {

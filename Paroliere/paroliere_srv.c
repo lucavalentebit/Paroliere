@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include <semaphore.h>
+#include <sys/time.h>
 #include <ctype.h> // Per tolower
 
 #include "messaggio.h"
@@ -29,6 +30,9 @@ bool is_paused = false;
 static int durata_partita = 180; // Durata in secondi, default 3 minuti
 static int tempo_residuo = 0;
 static pthread_t tempo_thread;
+
+// Variabile per il timeout in secondi
+static int timeout = 0;
 
 // Variabili globali per la gestione dei parametri seed e file matrici
 static unsigned int seed_fornito = 0;
@@ -56,7 +60,7 @@ void *scorer_function(void *arg)
     (void)arg;
     while (!shutdown_server)
     {
-        // Attende la fine della partita
+        // Attende fine partita
         pthread_mutex_lock(&mutex_game);
         while (!is_paused && !shutdown_server)
         {
@@ -65,12 +69,9 @@ void *scorer_function(void *arg)
         pthread_mutex_unlock(&mutex_game);
 
         if (shutdown_server)
-        {
-            pthread_mutex_unlock(&mutex_game);
             break;
-        }
 
-        // Aggiungi un piccolo delay perché i client stanno ancora inviando i punteggi
+        // Piccolo delay per gli ultimi punteggi
         sleep(1);
 
         // Raccoglie i punteggi dai client
@@ -78,7 +79,7 @@ void *scorer_function(void *arg)
         score_node_t *scores = NULL;
         int count = 0;
 
-        // Raccoglie punteggi
+        // Colleziona punteggi
         while (count < total_scores && !shutdown_server)
         {
             score_node_t *node = dequeue_score();
@@ -93,10 +94,10 @@ void *scorer_function(void *arg)
         if (shutdown_server)
             break;
 
-        // Calcola e invia la classifica
+        // Calcola e invia classifica
         if (count > 0)
         {
-            // Ordina la lista per punteggio decrescente usando bubble sort
+            // Ordina per punteggio decrescente
             score_node_t *current;
             score_node_t *last = NULL;
             bool swapped;
@@ -117,9 +118,9 @@ void *scorer_function(void *arg)
 
                         // Swap usernames
                         char temp_username[MAX_USERNAME];
-                        strncpy(temp_username, current->username, MAX_USERNAME - 1);
-                        strncpy(current->username, current->next->username, MAX_USERNAME - 1);
-                        strncpy(current->next->username, temp_username, MAX_USERNAME - 1);
+                        strcpy(temp_username, current->username);
+                        strcpy(current->username, current->next->username);
+                        strcpy(current->next->username, temp_username);
 
                         swapped = true;
                     }
@@ -128,18 +129,13 @@ void *scorer_function(void *arg)
                 last = current;
             } while (swapped);
 
-            // Prepara la classifica
-            char ranking[1024];
-            snprintf(ranking, sizeof(ranking), "Classifica finale:");
-
-            // Itera sulla lista ordinata
+            // Prepara e invia classifica
+            char ranking[1024] = "";
             current = scores;
-            int pos = 1;
             while (current)
             {
                 char entry[128];
-                snprintf(entry, sizeof(entry), "\n%d° %s: %d punti",
-                         pos++, current->username, current->score);
+                sprintf(entry, "%s,%d,", current->username, current->score);
                 strcat(ranking, entry);
                 current = current->next;
             }
@@ -147,12 +143,12 @@ void *scorer_function(void *arg)
             // Invia la classifica
             broadcast_message(MSG_PUNTI_FINALI, ranking);
 
-            // Libera la memoria
+            // Cleanup
             while (scores)
             {
-                score_node_t *temp = scores;
+                current = scores;
                 scores = scores->next;
-                free(temp);
+                free(current);
             }
         }
     }
@@ -193,16 +189,18 @@ void *gestione_temporale(void *arg)
         if (shutdown_server)
             break;
 
-        // Fine della partita, salva i punti
-        salva_punti();
+        // Fine della partita, forza l'invio dei punteggi finali
+        broadcast_message(MSG_PUNTI_FINALI, "");
 
         // Segnala al thread scorer la fine della partita
+        pthread_mutex_lock(&mutex_game);
+        is_paused = true;
         pthread_cond_signal(&cond_game_end);
+        pthread_mutex_unlock(&mutex_game);
 
         // Inizio della pausa
         pthread_mutex_lock(&mutex_game);
-        is_paused = true;
-        tempo_residuo = 10; // DA CAMBIARE a 1 minuto di pausa
+        tempo_residuo = 20; // Pausa fra le partite
         pthread_mutex_unlock(&mutex_game);
 
         // Countdown pausa
@@ -223,6 +221,17 @@ void *handle_client(void *arg)
     int client_fd = client->client_fd;
     char current_username[MAX_USERNAME] = "";
 
+    if (timeout > 0)
+    {
+        struct timeval tv;
+        tv.tv_sec = timeout;
+        tv.tv_usec = 0;
+        if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+        {
+            perror("Errore nell'impostazione del timeout sul socket");
+        }
+    }
+
     // Inizializza la lista delle parole proposte e i punti
     client->word_count = 0;
     inizializza_game(client);
@@ -234,6 +243,15 @@ void *handle_client(void *arg)
         messaggio_t *msg = ricevi_messaggio(client_fd);
         if (!msg)
         {
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+            {
+                printf("Client %s disconnesso per inattività dopo %d minuti\n",
+                       current_username[0] ? current_username : "non autenticato",
+                       timeout / 60);
+                if (current_username[0])
+                    rimuovi_utente_loggato(current_username);
+                break;
+            }
             printf("Client %s disconnesso\n",
                    current_username[0] ? current_username : "non autenticato");
             if (current_username[0])
@@ -444,12 +462,17 @@ void *handle_client(void *arg)
                 invia_messaggio(client_fd, MSG_ERR, "Autenticazione richiesta");
                 break;
             }
+
+            if (!client->score_submitted)
             {
-                int totale = get_punti_totali(current_username);
-                char totale_str[16];
-                snprintf(totale_str, sizeof(totale_str), "%d", totale);
-                invia_messaggio(client_fd, MSG_PUNTI_FINALI, totale_str);
+                // Invia punteggio finale per questo round
+                enqueue_score(current_username, client->game.part_points);
+                client->score_submitted = true;
             }
+
+            // Reset punteggi per prossimo round
+            client->game.part_points = 0;
+            client->word_count = 0;
             break;
 
         case MSG_CANCELLA_UTENTE:
@@ -511,13 +534,17 @@ int main(int argc, char *argv[])
         {"durata", required_argument, 0, 'd'},
         {"seed", required_argument, 0, 's'},
         {"matrici", required_argument, 0, 'm'},
+        {"diz", required_argument, 0, 'z'},
+        {"disconnetti-dopo", required_argument, 0, 't'},
         {0, 0, 0, 0}};
 
+    // Valori di default
     int opt;
     int option_index = 0;
     unsigned int seed = 0;
+    char *dictionary_file = "dictionary_ita.txt";
 
-    while ((opt = getopt_long(argc, argv, "p:d:s:m", long_options, &option_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "p:d:s:m:z:", long_options, &option_index)) != -1)
     {
         switch (opt)
         {
@@ -525,7 +552,7 @@ int main(int argc, char *argv[])
             port = atoi(optarg);
             break;
         case 'd':
-            durata_partita = atoi(optarg) * 60; // Converti minuti in secondi
+            durata_partita = atoi(optarg) * 60;
             break;
         case 's':
             seed = (unsigned int)atoi(optarg);
@@ -534,11 +561,18 @@ int main(int argc, char *argv[])
         case 'm':
             file_matrici = strdup(optarg);
             break;
+        case 'z':
+            dictionary_file = strdup(optarg);
+            break;
+        case 't':
+            timeout = atoi(optarg) * 60;
+            break;
         default:
-            fprintf(stderr, "Uso: %s --port <porta> [--matrici <data_filename>] [--durata <minuti>] [--seed <rnd_seed>]\n", argv[0]);
+            fprintf(stderr, "Uso: %s --port <porta> [--matrici <data_filename>] [--durata <minuti>] [--seed <rnd_seed>] [--diz <nome_dizionario.txt>]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
+
     // Inizializza seed e caricamento matrici
     if (seed_fornito)
     {
@@ -571,7 +605,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (carica_dizionario("dictionary_ita.txt") != 0)
+    if (carica_dizionario(dictionary_file) != 0)
     {
         fprintf(stderr, "Errore nel caricamento del dizionario\n");
         exit(EXIT_FAILURE);
@@ -717,6 +751,8 @@ int main(int argc, char *argv[])
         free(file_matrici);
         libera_matrici();
     }
+
+    free(dictionary_file);
 
     printf("Shutdown del server in corso...\n");
     // Invia messaggio di shutdown a tutti i client
