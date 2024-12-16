@@ -18,10 +18,10 @@ client_node_t *client_list = NULL;
 pthread_mutex_t mutex_client_list = PTHREAD_MUTEX_INITIALIZER;
 volatile sig_atomic_t shutdown_server = 0;
 
-
 // Funzione per inviare un messaggio a tutti i client
 void broadcast_message(char tipo, const char *payload)
 {
+    printf("Debug: broadcast_message chiamata con tipo %d e messaggio: %s\n", tipo, payload);
     pthread_mutex_lock(&mutex_client_list);
     client_node_t *curr = client_list;
     while (curr)
@@ -184,20 +184,22 @@ int is_word_submitted(client_info_t *client, const char *word)
 }
 
 // Funzioni per la gestione dei segnali
-void handle_sigint(int sig) {
+void handle_sigint(int sig)
+{
     (void)sig;
     const char msg[] = "\nRicevuto segnale di interruzione. Chiusura del server in corso...\n";
     write(STDOUT_FILENO, msg, strlen(msg)); // write = signal safe
-    
+
     shutdown_server = 1;
-    
+
     // Sveglia il thread scorer
     pthread_mutex_lock(&mutex_game);
     pthread_cond_signal(&cond_game_end);
     pthread_mutex_unlock(&mutex_game);
-    
+
     // Chiudi il socket principale per interrompere accept()
-    if (server_fd > 0) {
+    if (server_fd > 0)
+    {
         close(server_fd);
     }
 }
@@ -220,35 +222,109 @@ void pulisci_classifica()
 }
 
 // Funzione per registrare eventi nel log
-int log_event(const char *operation, const char *details) {
+int log_event(const char *operation, const char *details)
+{
     time_t now;
     struct tm *tm_info;
     char timestamp[20];
     FILE *f;
-    
+
     // Usa fprintf invece di snprintf per il logging
     pthread_mutex_lock(&mutex_log);
-    
+
     f = fopen("paroliere.log", "a");
-    if (!f) {
+    if (!f)
+    {
         pthread_mutex_unlock(&mutex_log);
         return -1;
     }
 
     now = time(NULL);
     tm_info = localtime(&now);
-    if (!tm_info) {
+    if (!tm_info)
+    {
         fclose(f);
         pthread_mutex_unlock(&mutex_log);
         return -1;
     }
 
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", tm_info);
-    
+
     fprintf(f, "%s,%s,%s\n", timestamp, operation, details);
-    fflush(f);  // Forza il flush del buffer
+    fflush(f); // Forza il flush del buffer
     fclose(f);
-    
+
     pthread_mutex_unlock(&mutex_log);
     return 0;
+}
+
+/*
+    Sezione dedicata alle funzioni di gestione coda per scorer
+*/
+score_queue_t score_queue;
+
+void init_score_queue()
+{
+    score_queue.front = NULL;
+    score_queue.rear = NULL;
+    score_queue.count = 0;
+    score_queue.classification_ready = false;
+    pthread_mutex_init(&score_queue.mutex, NULL);
+    pthread_cond_init(&score_queue.not_empty, NULL);
+}
+
+void enqueue_score(const char *username, int points)
+{
+    score_node_t *node = malloc(sizeof(score_node_t));
+    strncpy(node->username, username, MAX_USERNAME - 1);
+    node->username[MAX_USERNAME - 1] = '\0';
+    node->points = points;
+    node->next = NULL;
+
+    pthread_mutex_lock(&score_queue.mutex);
+    if (score_queue.rear == NULL)
+    {
+        score_queue.front = node;
+        score_queue.rear = node;
+    }
+    else
+    {
+        score_queue.rear->next = node;
+        score_queue.rear = node;
+    }
+    score_queue.count++;
+    pthread_cond_signal(&score_queue.not_empty);
+    pthread_mutex_unlock(&score_queue.mutex);
+}
+
+score_node_t *dequeue_score()
+{
+    pthread_mutex_lock(&score_queue.mutex);
+    while (score_queue.count == 0)
+    {
+        pthread_cond_wait(&score_queue.not_empty, &score_queue.mutex);
+    }
+
+    score_node_t *node = score_queue.front;
+    score_queue.front = score_queue.front->next;
+    if (score_queue.front == NULL)
+    {
+        score_queue.rear = NULL;
+    }
+    score_queue.count--;
+    pthread_mutex_unlock(&score_queue.mutex);
+
+    return node;
+}
+
+void destroy_score_queue()
+{
+    pthread_mutex_destroy(&score_queue.mutex);
+    pthread_cond_destroy(&score_queue.not_empty);
+    while (score_queue.front != NULL)
+    {
+        score_node_t *temp = score_queue.front;
+        score_queue.front = score_queue.front->next;
+        free(temp);
+    }
 }

@@ -14,6 +14,39 @@
 #define MAX_STORED_WORDS 100
 #define MAX_WORD_LENGTH 17
 
+/*
+    Sezione dedicata alla coda per scorer
+*/
+// Struttura per i messaggi di punteggio
+typedef struct score_node
+{
+    char username[MAX_USERNAME];
+    int points;
+    struct score_node *next;
+} score_node_t;
+
+// Struttura della coda
+typedef struct
+{
+    score_node_t *front;
+    score_node_t *rear;
+    pthread_mutex_t mutex;
+    pthread_cond_t not_empty;
+    int count;
+    bool classification_ready;
+} score_queue_t;
+
+// Funzioni per la gestione della coda
+void init_score_queue();
+void enqueue_score(const char *username, int points);
+score_node_t *dequeue_score();
+void destroy_score_queue();
+
+extern score_queue_t score_queue;
+
+/* 
+    Fine della sezione dedicata a scorer
+*/
 
 // Funzione per inviare un messaggio a tutti i client
 void broadcast_message(char tipo, const char *payload);
@@ -87,7 +120,7 @@ int aggiorna_punti_utente(const char *username, int punti);
 int salva_punti();
 
 void pulisci_classifica();
-//Funzione di logging
+// Funzione di logging
 int log_event(const char *operation, const char *details);
 
 #endif // PAROLIERE_UTILS_H
