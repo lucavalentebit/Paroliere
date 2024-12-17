@@ -21,7 +21,6 @@ volatile sig_atomic_t shutdown_server = 0;
 // Funzione per inviare un messaggio a tutti i client
 void broadcast_message(char tipo, const char *payload)
 {
-    printf("Debug: broadcast_message chiamata con tipo %d e messaggio: %s\n", tipo, payload);
     pthread_mutex_lock(&mutex_client_list);
     client_node_t *curr = client_list;
     while (curr)

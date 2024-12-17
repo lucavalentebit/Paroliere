@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
     fd_set read_fds;
     struct timeval tv;
     char input[1024];
-    bool need_prompt = false;
+    bool need_prompt = false; // Indica se è necessario stampare il prompt
 
     while (running)
     {

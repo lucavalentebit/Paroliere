@@ -80,7 +80,6 @@ void *scorer_function(void *arg)
         // Verifica presenza client connessi
         if (client_list == NULL)
         {
-            printf("Debug: Nessun client connesso\n");
             pthread_mutex_unlock(&mutex_client_list);
             continue;
         }
@@ -89,7 +88,6 @@ void *scorer_function(void *arg)
         char *classifica = calloc(2048, sizeof(char));
         if (!classifica)
         {
-            printf("Debug: Errore allocazione memoria classifica\n");
             pthread_mutex_unlock(&mutex_client_list);
             continue;
         }
@@ -116,16 +114,6 @@ void *scorer_function(void *arg)
                     {
                         strcat(classifica, entry);
                         punteggi_validi = true;
-
-                        // Aggiorna punteggi nel database
-                        if (aggiorna_punti_utente(client->client->username, punti) == 0)
-                        {
-                            printf("Debug: Punti aggiornati per utente %s: %d\n", client->client->username, punti);
-                        }
-                        else
-                        {
-                            printf("Debug: Errore aggiornamento punti per utente %s\n", client->client->username);
-                        }
                     }
                 }
 
@@ -142,13 +130,8 @@ void *scorer_function(void *arg)
         // Invia classifica se ci sono punteggi
         if (punteggi_validi && strlen(classifica) > 0)
         {
-            printf("Debug: Invio classifica: %s\n", classifica);
             broadcast_message(MSG_PUNTI_FINALI, classifica);
             salva_punti();
-        }
-        else
-        {
-            printf("Debug: Nessun punteggio da inviare\n");
         }
 
         free(classifica);
@@ -168,13 +151,11 @@ void *gestione_temporale(void *arg)
     (void)arg;
     while (!shutdown_server)
     {
-        // Attendi 5 secondi prima di pulire la classifica
+        // Attendi 5 secondi prima di pulire la classifica per permettere al thread scorer di terminare
         sleep(5);
 
         // Pulizia della classifica
-        printf("Debug: Avvio della pulizia della classifica.\n");
         pulisci_classifica();
-        printf("Debug: Pulizia della classifica completata.\n");
 
         // Inizio della partita
         pthread_mutex_lock(&mutex_game);
@@ -188,7 +169,6 @@ void *gestione_temporale(void *arg)
             free(shared_matrix);
         }
         shared_matrix = ottieni_prossima_matrice();
-        printf("Debug: shared_matrix ottenuta: %s\n", shared_matrix);
         pthread_mutex_unlock(&mutex_matrix);
 
         pthread_mutex_unlock(&mutex_game);
@@ -208,11 +188,11 @@ void *gestione_temporale(void *arg)
         // Fine della partita
         pthread_mutex_lock(&mutex_game);
         is_paused = true;
-        
+
         // Attendiamo che lo scorer finisca di elaborare i punteggi
         pthread_cond_signal(&cond_game_end);
         pthread_cond_wait(&cond_game_end, &mutex_game);
-        
+
         pthread_mutex_unlock(&mutex_game);
 
         // Inizio della pausa
