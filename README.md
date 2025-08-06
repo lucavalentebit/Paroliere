@@ -1,0 +1,1 @@
+Paroliere is a singleplayer / multiplayer game, where the player has to find words in a matrix submitted by the server. The game supports account registration and login, after-game leaderboards, real-time chat between players and multi-lingual support. 
